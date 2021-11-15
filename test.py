@@ -1,7 +1,6 @@
 import numpy as np
 import random
 import os
-import time
 from ase import Atoms
 from ase.build import fcc111, add_adsorbate
 from ase.visualize import view

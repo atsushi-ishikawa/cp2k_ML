@@ -42,14 +42,14 @@ def shuffle(surf, elements=None):
 	return surf_copy
 
 def adsorbate_CO(surf):
-	surf_copy = surf.copy()
-	mol = Atoms("CO", [[0, 0, 0], [0, 0, 1.3]])
-	mol.cell = [10.0, 10.0, 10.0]
-	mol.pbc = True
+	surf_with_ads = surf.copy()
+	ads = Atoms("CO", [[0, 0, 0], [0, 0, 1.3]])
+	ads.cell = [10.0, 10.0, 10.0]
+	ads.pbc = True
 
-	add_adsorbate(surf_copy, mol, height=1.5)
-	surf_copy.pbc = True
-	return [surf_copy, mol, surf]
+	add_adsorbate(surf_with_ads, ads, height=1.5)
+	surf_with_ads.pbc = True
+	return [surf_with_ads, ads, surf]
 
 def get_adsorption_pos_number(surf, adsorption_pos=8):
 	return surf.get_atomic_numbers()[adsorption_pos]
@@ -77,14 +77,22 @@ def regression(df, x_index=0, do_plot=True):
 		plt.show()
 
 # ---- start
+os.system("rm cp2k*")
+pdos_dir = "pdos"
+if not os.path.isdir(pdos_dir):
+	os.makedirs("./pdos")
+else:
+	os.system("rm {}/*".format(pdos_dir))
+
+os.environ["CP2K_DATA_DIR"] = "/Users/ishi/cp2k/cp2k-7.1.0/data"
 
 df = pd.DataFrame()
 base_surf = make_base_surface()
-num_sample = 2
+num_sample = 3
 inp = ''' &FORCE_EVAL
 			&DFT
 				&SCF
-					EPS_SCF 1.0E-2
+					EPS_SCF 1.0E-1
 					&OT
 						MINIMIZER DIIS
 					&END
@@ -105,30 +113,23 @@ inp = ''' &FORCE_EVAL
 '''
 
 for isample in range(num_sample):
-	os.system("rm cp2k*")
-	pdos_dir = "pdos"
-	if not os.path.isdir(pdos_dir):
-		os.makedirs("./pdos")
-	else:
-		os.system("rm {}/*".format(pdos_dir))
-
 	surf = shuffle(base_surf)
 	surf_mol_ads = adsorbate_CO(surf)
 
-	energy_list = []
-	for imol in surf_mol_ads:
-		#imol.calc = EMT()
-		calc = CP2K(max_scf=10, uks=True, basis_set="SZV-MOLOPT-SR-GTH",
+	energy_list = np.zeros(3)
+	for imol, mol in enumerate(surf_mol_ads):
+		#calc = EMT()
+		calc = CP2K(max_scf=15, uks=True,
+					basis_set="SZV-MOLOPT-SR-GTH", basis_set_file="BASIS_MOLOPT",
+					pseudo_potential="GTH-PBE", potential_file="GTH_POTENTIALS",
 					poisson_solver=None,
 					xc="PBE", print_level="MEDIUM", inp=inp)
-		imol.set_calculator(calc)
-		energy = imol.get_potential_energy()
-		energy_list.append(energy)
-		time.sleep(10)
+		mol.set_calculator(calc)
+		energy = mol.get_potential_energy()
+		energy_list[imol] = energy
 
-	e_ads = energy_list[2] - sum(energy_list[0:1])
+	e_ads = energy_list[0] - (energy_list[1] + energy_list[2])  # notice the order
 	num = get_adsorption_pos_number(surf)
-
 	print("site={0:d}, adsorption energy={1:f}".format(num, e_ads))
 	df2 = pd.DataFrame([[int(num), e_ads]])
 	df  = df.append(df2, ignore_index=True)

@@ -7,6 +7,8 @@ from ase.build import fcc111, add_adsorbate
 from ase.visualize import view
 from ase.calculators.emt import EMT
 from ase.calculators.cp2k import CP2K
+from ase.optimize.bfgs import BFGS
+from ase.constraints import FixAtoms
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
@@ -15,9 +17,17 @@ import matplotlib
 matplotlib.rcParams['backend'] = 'TkAgg'
 import matplotlib.pyplot as plt
 
+def constraint(surf, indices=None):
+	c = FixAtoms(indices=indices)
+	surf.set_constraint(c)
+
 def make_base_surface(element="Au"):
 	vacuum = 10.0
 	surf = fcc111(element, size=[2, 2, 3], vacuum=vacuum)
+
+	indices = list(range(0, 4))
+	constraint(surf, indices=indices)
+
 	surf.translate([0, 0, -vacuum+0.1])
 	surf.pbc = False
 	return surf
@@ -28,7 +38,8 @@ def shuffle(surf, elements=None):
 
 	surf_copy = surf.copy()
 	num_atoms = len(surf_copy.get_atomic_numbers())
-	num_replace = random.choice(range(1, num_atoms))
+	max_replace = int(0.5*num_atoms)
+	num_replace = random.choice(range(1, max_replace))
 
 	for iatom in range(num_replace):
 		surf_copy[iatom].symbol = random.choice(elements)
@@ -38,6 +49,9 @@ def shuffle(surf, elements=None):
 	np.random.shuffle(atomic_numbers)
 	surf_copy.set_atomic_numbers(atomic_numbers)
 	surf_copy.pbc = True
+
+	indices = list(range(0, 4))
+	constraint(surf_copy, indices=indices)
 
 	return surf_copy
 
@@ -49,10 +63,15 @@ def adsorbate_CO(surf):
 
 	add_adsorbate(surf_with_ads, ads, height=1.5)
 	surf_with_ads.pbc = True
+	indices = list(range(0, 4))
+	constraint(surf_with_ads, indices=indices)
+
 	return [surf_with_ads, ads, surf]
 
-def get_adsorption_pos_number(surf, adsorption_pos=8):
-	return surf.get_atomic_numbers()[adsorption_pos]
+def get_element_of_adsorption_site(surf, adsorption_pos=8):
+	number = surf.get_atomic_numbers()[adsorption_pos]
+	symbol = surf.get_chemical_symbols()[adsorption_pos]
+	return number, symbol
 
 def regression(df, x_index=0, do_plot=True):
 	x = df.iloc[:, x_index].values.reshape(-1, 1)  # for 1D-array
@@ -88,7 +107,6 @@ os.environ["CP2K_DATA_DIR"] = "/Users/ishi/cp2k/cp2k-7.1.0/data"
 
 df = pd.DataFrame()
 base_surf = make_base_surface()
-num_sample = 3
 inp = ''' &FORCE_EVAL
 			&DFT
 				&SCF
@@ -97,9 +115,9 @@ inp = ''' &FORCE_EVAL
 						MINIMIZER DIIS
 					&END
 				&END SCF
-				!&POISSON
-				!	PERIODIC XYZ
-				!&END POISSON
+				&POISSON
+					PERIODIC XYZ
+				&END POISSON
 				&PRINT
 				  &PDOS
 				    &LDOS
@@ -112,25 +130,36 @@ inp = ''' &FORCE_EVAL
 		  &END FORCE_EVAL				 
 '''
 
+num_sample = 3
 for isample in range(num_sample):
 	surf = shuffle(base_surf)
-	surf_mol_ads = adsorbate_CO(surf)
+	surf_ads = adsorbate_CO(surf)
 
 	energy_list = np.zeros(3)
-	for imol, mol in enumerate(surf_mol_ads):
-		#calc = EMT()
-		calc = CP2K(max_scf=15, uks=True,
+	for imol, mol in enumerate(surf_ads):
+		# pre-opt with EMT
+		calc = EMT()
+		mol.set_calculator(calc)
+		opt = BFGS(mol)
+		opt.run(steps=100, fmax=0.01)
+		pos = mol.get_positions()
+
+		# cp2k calc
+		mol.set_positions(pos)
+		calc = CP2K(max_scf=10, uks=True,
 					basis_set="SZV-MOLOPT-SR-GTH", basis_set_file="BASIS_MOLOPT",
 					pseudo_potential="GTH-PBE", potential_file="GTH_POTENTIALS",
 					poisson_solver=None,
 					xc="PBE", print_level="MEDIUM", inp=inp)
 		mol.set_calculator(calc)
+		opt = BFGS(mol, maxstep=0.1, trajectory="cp2k.traj")
+		opt.run(steps=6)
 		energy = mol.get_potential_energy()
 		energy_list[imol] = energy
 
 	e_ads = energy_list[0] - (energy_list[1] + energy_list[2])  # notice the order
-	num = get_adsorption_pos_number(surf)
-	print("site={0:d}, adsorption energy={1:f}".format(num, e_ads))
+	num, elem = get_element_of_adsorption_site(surf)
+	print("replaced_by={0:s}, adsorption energy={1:f}".format(elem, e_ads))
 	df2 = pd.DataFrame([[int(num), e_ads]])
 	df  = df.append(df2, ignore_index=True)
 

@@ -129,7 +129,7 @@ inp = ''' &FORCE_EVAL
 		  &END FORCE_EVAL				 
 '''
 
-num_sample = 3
+num_sample = 5
 for isample in range(num_sample):
 	surf = shuffle(base_surf)
 	surf_ads = adsorbate_CO(surf)
@@ -152,7 +152,7 @@ for isample in range(num_sample):
 					xc="PBE", print_level="MEDIUM", inp=inp)
 		mol.set_calculator(calc)
 		opt = BFGS(mol, maxstep=0.1, trajectory="cp2k.traj")
-		opt.run(steps=6)
+		opt.run(steps=5)
 		energy = mol.get_potential_energy()
 		energy_list[imol] = energy
 

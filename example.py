@@ -13,8 +13,9 @@ from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
 import matplotlib
-matplotlib.rcParams['backend'] = 'TkAgg'
 import matplotlib.pyplot as plt
+
+matplotlib.rcParams['backend'] = 'TkAgg'
 
 def constraint(surf, indices=None):
 	c = FixAtoms(indices=indices)

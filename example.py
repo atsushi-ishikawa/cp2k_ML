@@ -22,8 +22,8 @@ def constraint(surf, indices=None):
 	surf.set_constraint(c)
 
 def make_base_surface(element="Au"):
-	vacuum = 10.0
-	surf = fcc111(element, size=[2, 2, 3], vacuum=vacuum)
+	vacuum = 6.0
+	surf = fcc111(element, size=[2, 2, 2], vacuum=vacuum)
 
 	indices = list(range(0, 4))
 	constraint(surf, indices=indices)
@@ -38,7 +38,7 @@ def shuffle(surf, elements=None):
 
 	surf_copy = surf.copy()
 	num_atoms = len(surf_copy.get_atomic_numbers())
-	max_replace = int(0.5*num_atoms)
+	max_replace = int(1.0*num_atoms)
 	num_replace = random.choice(range(1, max_replace))
 
 	for iatom in range(num_replace):
@@ -68,10 +68,18 @@ def adsorbate_CO(surf):
 
 	return [surf_with_ads, ads, surf]
 
-def get_element_of_adsorption_site(surf, adsorption_pos=8):
+adsorption_pos = 4
+def get_element_of_adsorption_site(surf, adsorption_pos=adsorption_pos):
 	number = surf.get_atomic_numbers()[adsorption_pos]
 	symbol = surf.get_chemical_symbols()[adsorption_pos]
 	return number, symbol
+
+def get_fermi_energy(pdos_file=None):
+	f = open(pdos_file, "r")
+	line = f.readline()
+	efermi = line.split("=")[2].strip().split(" ")[0]
+	efermi = float(efermi)
+	return efermi
 
 def regression(df, x_index=0, do_plot=True):
 	x = df.iloc[:, x_index].values.reshape(-1, 1)  # for 1D-array
@@ -130,7 +138,10 @@ inp = ''' &FORCE_EVAL
 		  &END FORCE_EVAL				 
 '''
 
-num_sample = 5
+num_sample = 10
+steps = 5
+max_scf = 10
+
 for isample in range(num_sample):
 	surf = shuffle(base_surf)
 	surf_ads = adsorbate_CO(surf)
@@ -141,28 +152,34 @@ for isample in range(num_sample):
 		calc = EMT()
 		mol.set_calculator(calc)
 		opt = BFGS(mol)
-		opt.run(steps=100, fmax=0.01)
+		opt.run(steps=steps, fmax=0.01)
 		pos = mol.get_positions()
 
 		# cp2k calc
 		mol.set_positions(pos)
-		calc = CP2K(max_scf=10, uks=True,
+		calc = CP2K(max_scf=max_scf, uks=True,
 					basis_set="SZV-MOLOPT-SR-GTH", basis_set_file="BASIS_MOLOPT",
 					pseudo_potential="GTH-PBE", potential_file="GTH_POTENTIALS",
-					poisson_solver=None,
-					xc="PBE", print_level="MEDIUM", inp=inp)
+					poisson_solver=None, xc="PBE", print_level="MEDIUM", inp=inp)
 		mol.set_calculator(calc)
 		opt = BFGS(mol, maxstep=0.1, trajectory="cp2k.traj")
-		opt.run(steps=5)
+		opt.run(steps=steps)
 		energy = mol.get_potential_energy()
 		energy_list[imol] = energy
 
+		if imol == 2:  # surf
+			pdos_file = pdos_dir + "/" + "cp2k-ALPHA_list1.pdos"
+			efermi = get_fermi_energy(pdos_file=pdos_file)
+
 	e_ads = energy_list[0] - (energy_list[1] + energy_list[2])  # notice the order
-	num, elem = get_element_of_adsorption_site(surf)
-	print("replaced_by={0:s}, adsorption energy={1:f}".format(elem, e_ads))
-	df2 = pd.DataFrame([[int(num), e_ads]])
+	#atom_num, elem = get_element_of_adsorption_site(surf)
+
+	#print("replaced_by={0:s}, adsorption energy={1:f}".format(elem, e_ads))
+	#df2 = pd.DataFrame([[int(atom_num), e_ads]])
+	df2 = pd.DataFrame([[efermi, e_ads]])
 	df  = df.append(df2, ignore_index=True)
 
-df.columns = ["atomic_num", "e_ads"]
+#df.columns = ["atomic_number", "adsorption_energy"]
+df.columns = ["fermi_energy", "adsorption_energy"]
 print(df)
 regression(df, x_index=0)

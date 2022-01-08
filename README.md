@@ -9,3 +9,4 @@ export ASE_CP2K_COMMAND="${HOME}/cp2k/cp2k-7.1.0/exe/Darwin-IntelMacintosh-gfort
 ```
 * Do not specify the CP2K binary. It should be cp2k_shell.{sopt, popt, ...}
 * Machine-learning is based on scikit-learn library. Now it does the simple regression analysis
+* CO adsorption energy is now treated as the target value, and the atomic number of the adsorption site is descriptor

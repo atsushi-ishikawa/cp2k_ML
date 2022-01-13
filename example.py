@@ -9,11 +9,9 @@ from ase.calculators.cp2k import CP2K
 from ase.optimize.bfgs import BFGS
 from ase.constraints import FixAtoms
 import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error
 import matplotlib
 import matplotlib.pyplot as plt
+import seaborn
 
 matplotlib.rcParams['backend'] = 'TkAgg'
 
@@ -22,7 +20,7 @@ def constraint(surf, indices=None):
 	surf.set_constraint(c)
 
 def make_base_surface(element="Au"):
-	vacuum = 6.0
+	vacuum = 8.0
 	surf = fcc111(element, size=[2, 2, 2], vacuum=vacuum)
 
 	indices = list(range(0, 4))
@@ -77,31 +75,58 @@ def get_element_of_adsorption_site(surf, adsorption_pos=adsorption_pos):
 def get_fermi_energy(pdos_file=None):
 	f = open(pdos_file, "r")
 	line = f.readline()
-	efermi = line.split("=")[2].strip().split(" ")[0]
-	efermi = float(efermi)
-	return efermi
+	e_fermi = line.split("=")[2].strip().split(" ")[0]
+	e_fermi = float(e_fermi)
+	return e_fermi
 
-def regression(df, x_index=0, do_plot=True):
-	x = df.iloc[:, x_index].values.reshape(-1, 1)  # for 1D-array
-	y = df.iloc[:, -1].values
+def get_dos_center(pdos_file=None):
+	dos = np.loadtxt(pdos_file, skiprows=2)
+	energy = dos[:, 1]
+	s_dos  = dos[:, 3]
+	p_dos  = dos[:, 4] + dos[:, 5] + dos[:, 6]
+	d_dos  = dos[:, 7] + dos[:, 8] + dos[:, 9] + dos[:, 10] + dos[:, 11]
+	s_center = np.trapz(energy*s_dos, energy) / np.trapz(s_dos, energy)
+	p_center = np.trapz(energy*p_dos, energy) / np.trapz(p_dos, energy)
+	d_center = np.trapz(energy*d_dos, energy) / np.trapz(d_dos, energy)
+	return s_center, p_center, d_center
 
-	cv = 5
+def regression(df, do_plot=True):
+	from sklearn.linear_model import LinearRegression, Lasso
+	from sklearn.preprocessing import StandardScaler
+	from sklearn.pipeline import Pipeline
+	from sklearn.model_selection import train_test_split, GridSearchCV
+	from sklearn.metrics import mean_squared_error
+
+	x = df.drop("ads_energy", axis=1)
+	y = -df["ads_energy"]  # more positive = stronger adsorption
+
+	cv = 4
 	test_size = 1.0 / cv
 
 	x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=test_size)
 
-	lr = LinearRegression()
-	lr.fit(x_train, y_train)
+	scaler = StandardScaler()
+	#method = LinearRegression()
+	method = Lasso()
+	pipe = Pipeline([("scl", scaler), ("reg", method)])
+	param_grid = {"reg" + "__alpha": list(10**np.arange(-2, 2, 1.0))}
+	grid = GridSearchCV(pipe, param_grid=param_grid, cv=cv)
+	grid.fit(x_train, y_train)
 
-	print(pd.DataFrame({"name": "atomic_num", "Coef": lr.coef_}).sort_values(by="Coef"))
-	print("Training set score: {:.3f}".format(lr.score(x_train, y_train)))
-	print("Test set score: {:.3f}".format(lr.score(x_test, y_test)))
-	print("RMSE: {:.3f}".format(np.sqrt(mean_squared_error(y_test, lr.predict(x_test)))))
+	print(pd.DataFrame({"name": x.columns, "Coef": grid.best_estimator_.named_steps["reg"].coef_}))
+	print("Training set score: {:.3f}".format(grid.score(x_train, y_train)))
+	print("Test set score: {:.3f}".format(grid.score(x_test, y_test)))
+	print("RMSE: {:.3f}".format(np.sqrt(mean_squared_error(y_test, grid.predict(x_test)))))
 
 	if do_plot:
-		plt.scatter(x, y)
-		plt.plot(x, lr.predict(x), color="red")
+		fig, ax = plt.subplots(figsize=(6, 6))
+		seaborn.regplot(x=grid.predict(x), y=y.values,
+			scatter_kws={"color": "navy", 'alpha': 0.3}, line_kws={"color": "navy"})
+		ax.set_xlabel("Predicted value")
+		ax.set_ylabel("True value")
+		fig.tight_layout()
 		plt.show()
+		plt.close()
 
 # ---- start
 os.system("rm cp2k*")
@@ -118,7 +143,7 @@ base_surf = make_base_surface()
 inp = ''' &FORCE_EVAL
 			&DFT
 				&SCF
-					EPS_SCF 1.0E-1
+					EPS_SCF 1.0E-3
 					&OT
 						MINIMIZER DIIS
 					&END
@@ -129,7 +154,8 @@ inp = ''' &FORCE_EVAL
 				&PRINT
 				  &PDOS
 				    &LDOS
-				      LIST 1
+				      COMPONENTS .TRUE.
+				      LIST 1..Natoms
 				    &END LDOS
 				    FILENAME ./pdos/
 				  &END PDOS
@@ -138,9 +164,9 @@ inp = ''' &FORCE_EVAL
 		  &END FORCE_EVAL				 
 '''
 
-num_sample = 10
-steps = 5
-max_scf = 10
+num_sample = 20
+steps = 2
+max_scf = 5
 
 for isample in range(num_sample):
 	surf = shuffle(base_surf)
@@ -148,19 +174,23 @@ for isample in range(num_sample):
 
 	energy_list = np.zeros(3)
 	for imol, mol in enumerate(surf_ads):
+		print("now calculating:", mol.get_chemical_formula())
+
 		# pre-opt with EMT
 		calc = EMT()
 		mol.set_calculator(calc)
 		opt = BFGS(mol)
-		opt.run(steps=steps, fmax=0.01)
+		opt.run(steps=30, fmax=0.05)
 		pos = mol.get_positions()
 
 		# cp2k calc
 		mol.set_positions(pos)
+		natoms = len(mol)
+		inp_replaced = inp.replace("Natoms", str(natoms))
 		calc = CP2K(max_scf=max_scf, uks=True,
 					basis_set="SZV-MOLOPT-SR-GTH", basis_set_file="BASIS_MOLOPT",
 					pseudo_potential="GTH-PBE", potential_file="GTH_POTENTIALS",
-					poisson_solver=None, xc="PBE", print_level="MEDIUM", inp=inp)
+					poisson_solver=None, xc="PBE", print_level="MEDIUM", inp=inp_replaced)
 		mol.set_calculator(calc)
 		opt = BFGS(mol, maxstep=0.1, trajectory="cp2k.traj")
 		opt.run(steps=steps)
@@ -169,17 +199,17 @@ for isample in range(num_sample):
 
 		if imol == 2:  # surf
 			pdos_file = pdos_dir + "/" + "cp2k-ALPHA_list1.pdos"
-			efermi = get_fermi_energy(pdos_file=pdos_file)
+			e_fermi = get_fermi_energy(pdos_file=pdos_file)
+			s_center, p_center, d_center = get_dos_center(pdos_file=pdos_file)
 
 	e_ads = energy_list[0] - (energy_list[1] + energy_list[2])  # notice the order
-	#atom_num, elem = get_element_of_adsorption_site(surf)
 
-	#print("replaced_by={0:s}, adsorption energy={1:f}".format(elem, e_ads))
 	#df2 = pd.DataFrame([[int(atom_num), e_ads]])
-	df2 = pd.DataFrame([[efermi, e_ads]])
+	df2 = pd.DataFrame([[e_fermi, s_center, p_center, d_center, e_ads]])
+	#df2 = pd.DataFrame([[e_fermi, d_center, e_ads]])
 	df  = df.append(df2, ignore_index=True)
 
-#df.columns = ["atomic_number", "adsorption_energy"]
-df.columns = ["fermi_energy", "adsorption_energy"]
+df.columns = ["fermi_energy", "s_center", "p_center", "d_center", "ads_energy"]
+#df.columns = ["fermi_energy", "d_center", "ads_energy"]
 print(df)
-regression(df, x_index=0)
+regression(df)

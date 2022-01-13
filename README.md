@@ -1,7 +1,7 @@
 # cp2k_ML
 
 * The script for carrying out the machine-learning analysis with the computational results obtained with CP2K
-* Based on ASE
+* Based on ASE (https://wiki.fysik.dtu.dk/ase/index.html)
 * CP2K version is 7.1.0, as this version is stable on MacOS
 * One should specify the environment variable for CP2K (e.g. in ~/.bashrc) as
 ```

@@ -164,8 +164,8 @@ inp = ''' &FORCE_EVAL
 		  &END FORCE_EVAL				 
 '''
 
-num_sample = 20
-steps = 2
+num_sample = 30
+steps = 3
 max_scf = 5
 
 for isample in range(num_sample):

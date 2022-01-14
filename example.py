@@ -175,6 +175,7 @@ steps = 5
 max_scf = 10
 
 for isample in range(num_sample):
+	print(" ---- Now {0:d} / {1:d} th sample ---".format(isample, num_sample))
 	surf = shuffle(base_surf)
 	surf_ads = adsorbate_CO(surf)
 

@@ -53,21 +53,17 @@ def shuffle(surf, elements=None):
 
 	return surf_copy
 
-def adsorbate_CO(surf):
+def adsorbate_molecule(surf, ads):
 	surf_with_ads = surf.copy()
-	ads = Atoms("CO", [[0, 0, 0], [0, 0, 1.3]])
-	ads.cell = [10.0, 10.0, 10.0]
-	ads.pbc = True
 
 	add_adsorbate(surf_with_ads, ads, height=1.5)
 	surf_with_ads.pbc = True
 	indices = list(range(0, 4))
 	constraint(surf_with_ads, indices=indices)
 
-	return [surf_with_ads, ads, surf]
+	return [surf_with_ads, surf]
 
-adsorption_pos = 4
-def get_element_of_adsorption_site(surf, adsorption_pos=adsorption_pos):
+def get_element_of_adsorption_site(surf, adsorption_pos=0):
 	number = surf.get_atomic_numbers()[adsorption_pos]
 	symbol = surf.get_chemical_symbols()[adsorption_pos]
 	return number, symbol
@@ -100,7 +96,7 @@ def regression(df, do_plot=True):
 	x = df.drop("ads_energy", axis=1)
 	y = -df["ads_energy"]  # more positive = stronger adsorption
 
-	cv = 4
+	cv = 5
 	test_size = 1.0 / cv
 
 	x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=test_size)
@@ -137,12 +133,18 @@ if not os.path.isdir(pdos_dir):
 else:
 	os.system("rm {}/*".format(pdos_dir))
 
-ncore = 36
+ncore = 1
 home = os.environ["HOME"]
-cp2k_root  = home + "/" + "cp2k/cp2k-6.1"
-cp2k_shell = cp2k_root + "/exe/Linux-x86-64-intel/cp2k_shell.popt"
+
+#cp2k_root  = home + "/" + "cp2k/cp2k-6.1"
+#cp2k_shell = cp2k_root + "/exe/Linux-x86-64-intel/cp2k_shell.popt"
+#os.environ["CP2K_DATA_DIR"] = cp2k_root + "/data"
+#CP2K.command = "mpiexec.hydra -n {0:d} {1:s}".format(ncore, cp2k_shell)
+
+cp2k_root  = home + "/" + "cp2k/cp2k-7.1.0"
+cp2k_shell = cp2k_root + "/exe/Darwin-IntelMacintosh-gfortran/cp2k_shell.sopt"
 os.environ["CP2K_DATA_DIR"] = cp2k_root + "/data"
-CP2K.command = "mpiexec.hydra -n {0:d} {1:s}".format(ncore, cp2k_shell)
+CP2K.command = cp2k_shell
 
 df = pd.DataFrame()
 base_surf = make_base_surface()
@@ -174,12 +176,30 @@ num_sample = 30
 steps = 5
 max_scf = 10
 
+# adsorbate
+ads = Atoms("CO", [[0, 0, 0], [0, 0, 1.3]])
+ads.cell = [10.0, 10.0, 10.0]
+ads.pbc = True
+
+# calculate for adsorbate molecule
+print("calculating energy for adsorbate:", ads.get_chemical_formula())
+natoms = len(ads)
+inp_replaced = inp.replace("Natoms", str(natoms))
+calc = CP2K(max_scf=max_scf, uks=True,
+			basis_set="SZV-MOLOPT-SR-GTH", basis_set_file="BASIS_MOLOPT",
+			pseudo_potential="GTH-PBE", potential_file="GTH_POTENTIALS",
+			poisson_solver=None, xc="PBE", print_level="MEDIUM", inp=inp_replaced)
+ads.set_calculator(calc)
+opt = BFGS(ads, maxstep=0.1, trajectory="cp2k.traj")
+opt.run(steps=steps)
+energy_ads = ads.get_potential_energy()
+
 for isample in range(num_sample):
 	print(" ---- Now {0:d} / {1:d} th sample ---".format(isample, num_sample))
 	surf = shuffle(base_surf)
-	surf_ads = adsorbate_CO(surf)
+	surf_ads = adsorbate_molecule(surf, ads)
 
-	energy_list = np.zeros(3)
+	energy_list = np.zeros(2)
 	for imol, mol in enumerate(surf_ads):
 		print("now calculating:", mol.get_chemical_formula())
 
@@ -204,12 +224,12 @@ for isample in range(num_sample):
 		energy = mol.get_potential_energy()
 		energy_list[imol] = energy
 
-		if imol == 2:  # surf
+		if imol == 1:  # surf
 			pdos_file = pdos_dir + "/" + "cp2k-ALPHA_list1.pdos"
 			e_fermi = get_fermi_energy(pdos_file=pdos_file)
 			s_center, p_center, d_center = get_dos_center(pdos_file=pdos_file)
 
-	e_ads = energy_list[0] - (energy_list[1] + energy_list[2])  # notice the order
+	e_ads = energy_list[0] - (energy_list[1] + energy_ads)
 
 	#df2 = pd.DataFrame([[int(atom_num), e_ads]])
 	df2 = pd.DataFrame([[e_fermi, s_center, p_center, d_center, e_ads]])

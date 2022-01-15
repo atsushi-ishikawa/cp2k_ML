@@ -137,7 +137,7 @@ if not os.path.isdir(pdos_dir):
 else:
 	os.system("rm {}/*".format(pdos_dir))
 
-ncore = 40  # hokudai
+ncore = 36
 home = os.environ["HOME"]
 cp2k_root  = home + "/" + "cp2k/cp2k-6.1"
 cp2k_shell = cp2k_root + "/exe/Linux-x86-64-intel/cp2k_shell.popt"

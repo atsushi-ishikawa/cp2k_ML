@@ -86,45 +86,6 @@ def get_dos_center(pdos_file=None):
 	d_center = np.trapz(energy*d_dos, energy) / np.trapz(d_dos, energy)
 	return s_center, p_center, d_center
 
-def regression(df, do_plot=True):
-	from sklearn.linear_model import LinearRegression, Lasso
-	from sklearn.preprocessing import StandardScaler
-	from sklearn.pipeline import Pipeline
-	from sklearn.model_selection import train_test_split, GridSearchCV
-	from sklearn.metrics import mean_squared_error
-
-	x = df.drop("ads_energy", axis=1)
-	y = -df["ads_energy"]  # more positive = stronger adsorption
-
-	cv = 5
-	test_size = 1.0 / cv
-
-	x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=test_size)
-
-	scaler = StandardScaler()
-	#method = LinearRegression()
-	method = Lasso()
-	pipe = Pipeline([("scl", scaler), ("reg", method)])
-	param_grid = {"reg" + "__alpha": list(10**np.arange(-2, 2, 1.0))}
-	grid = GridSearchCV(pipe, param_grid=param_grid, cv=cv)
-	grid.fit(x_train, y_train)
-
-	print(pd.DataFrame({"name": x.columns, "Coef": grid.best_estimator_.named_steps["reg"].coef_}))
-	print("Training set score: {:.3f}".format(grid.score(x_train, y_train)))
-	print("Test set score: {:.3f}".format(grid.score(x_test, y_test)))
-	print("RMSE: {:.3f}".format(np.sqrt(mean_squared_error(y_test, grid.predict(x_test)))))
-
-	if do_plot:
-		fig, ax = plt.subplots(figsize=(6, 6))
-		seaborn.regplot(x=grid.predict(x), y=y.values,
-			scatter_kws={"color": "navy", 'alpha': 0.3}, line_kws={"color": "navy"})
-		ax.set_xlabel("Predicted value")
-		ax.set_ylabel("True value")
-		fig.tight_layout()
-		#plt.show()
-		fig.savefig("regplot.png")
-		plt.close()
-
 # ---- start
 os.system("rm cp2k*")
 pdos_dir = "pdos"
@@ -132,6 +93,8 @@ if not os.path.isdir(pdos_dir):
 	os.makedirs("pdos")
 else:
 	os.system("rm {}/*".format(pdos_dir))
+
+json_file = "data.json"
 
 ncore = 1
 home = os.environ["HOME"]
@@ -171,10 +134,9 @@ inp = ''' &FORCE_EVAL
 			&END DFT
 		  &END FORCE_EVAL				 
 '''
-
-num_sample = 30
-steps = 5
-max_scf = 10
+num_sample = 2
+steps = 2
+max_scf = 5
 
 # adsorbate
 ads = Atoms("CO", [[0, 0, 0], [0, 0, 1.3]])
@@ -198,6 +160,8 @@ for isample in range(num_sample):
 	print(" ---- Now {0:d} / {1:d} th sample ---".format(isample, num_sample))
 	surf = shuffle(base_surf)
 	surf_ads = adsorbate_molecule(surf, ads)
+	surf_formula = surf_ads[1].get_chemical_formula()
+	surf_symbols = surf_ads[1].get_chemical_symbols()
 
 	energy_list = np.zeros(2)
 	for imol, mol in enumerate(surf_ads):
@@ -228,16 +192,19 @@ for isample in range(num_sample):
 			pdos_file = pdos_dir + "/" + "cp2k-ALPHA_list1.pdos"
 			e_fermi = get_fermi_energy(pdos_file=pdos_file)
 			s_center, p_center, d_center = get_dos_center(pdos_file=pdos_file)
+			s_center -= e_fermi
+			p_center -= e_fermi
+			d_center -= e_fermi
 
 	e_ads = energy_list[0] - (energy_list[1] + energy_ads)
 
-	#df2 = pd.DataFrame([[int(atom_num), e_ads]])
-	df2 = pd.DataFrame([[e_fermi, s_center, p_center, d_center, e_ads]])
-	#df2 = pd.DataFrame([[e_fermi, d_center, e_ads]])
-	df  = df.append(df2, ignore_index=True)
+	df_ = pd.DataFrame([[surf_formula, surf_symbols, s_center, p_center, d_center, e_ads]])
+	df  = df.append(df_, ignore_index=True)
 
-df.columns = ["fermi_energy", "s_center", "p_center", "d_center", "ads_energy"]
-#df.columns = ["fermi_energy", "d_center", "ads_energy"]
-print(df)
-regression(df)
+df.columns = ["surf_formula", "surf_symbols", "s_center", "p_center", "d_center", "ads_energy"]
 
+if os.path.exists(json_file):
+	df_ = pd.read_json(json_file, orient="records", lines=True)
+	df = df_.append(df)
+
+df.to_json(json_file, orient="records", lines=True)

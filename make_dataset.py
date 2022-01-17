@@ -103,19 +103,19 @@ jsonfile = "data.json"
 
 steps = 5
 max_scf = 10
-ncore = 1
+ncore = 36
 
 home = os.environ["HOME"]
 
-#cp2k_root  = home + "/" + "cp2k/cp2k-6.1"
-#cp2k_shell = cp2k_root + "/exe/Linux-x86-64-intel/cp2k_shell.popt"
-#os.environ["CP2K_DATA_DIR"] = cp2k_root + "/data"
-#CP2K.command = "mpiexec.hydra -n {0:d} {1:s}".format(ncore, cp2k_shell)
-
-cp2k_root  = home + "/" + "cp2k/cp2k-7.1.0"
-cp2k_shell = cp2k_root + "/exe/Darwin-IntelMacintosh-gfortran/cp2k_shell.sopt"
+cp2k_root  = home + "/" + "cp2k/cp2k-6.1"
+cp2k_shell = cp2k_root + "/exe/Linux-x86-64-intel/cp2k_shell.popt"
 os.environ["CP2K_DATA_DIR"] = cp2k_root + "/data"
-CP2K.command = cp2k_shell
+CP2K.command = "mpiexec.hydra -n {0:d} {1:s}".format(ncore, cp2k_shell)
+
+#cp2k_root  = home + "/" + "cp2k/cp2k-7.1.0"
+#cp2k_shell = cp2k_root + "/exe/Darwin-IntelMacintosh-gfortran/cp2k_shell.sopt"
+#os.environ["CP2K_DATA_DIR"] = cp2k_root + "/data"
+#CP2K.command = cp2k_shell
 
 df = pd.DataFrame()
 base_surf = make_base_surface()
@@ -164,7 +164,6 @@ energy_ads = ads.get_potential_energy()
 for isample in range(nsample):
 	print(" ---- Now {0:d} / {1:d} th sample ---".format(isample, nsample))
 	surf = shuffle(base_surf)
-	view(surf); quit()
 	surf_ads = adsorbate_molecule(surf, ads)
 	surf_formula = surf_ads[1].get_chemical_formula()
 	surf_symbols = surf_ads[1].get_chemical_symbols()

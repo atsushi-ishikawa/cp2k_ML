@@ -3,8 +3,11 @@ import pandas as pd
 import matplotlib
 import matplotlib.pyplot as plt
 import seaborn
+import argparse
 
 matplotlib.rcParams['backend'] = 'TkAgg'
+
+np.random.seed(0)
 
 def drop_duplicated_sample(df, key=None):
 	duplicated = df[key].apply(tuple).duplicated()
@@ -54,6 +57,11 @@ def regression(df, do_plot=True):
 		plt.close()
 
 # ---- start
-json_file = "data.json"
-df = pd.read_json(json_file, orient="records", lines=True)
+parser = argparse.ArgumentParser()
+parser.add_argument("--jsonfile", help="json file with data", default="data.json")
+args = parser.parse_args()
+jsonfile = args.jsonfile
+
+df = pd.read_json(jsonfile, orient="records", lines=True)
 regression(df)
+

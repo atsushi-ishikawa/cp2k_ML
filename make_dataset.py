@@ -9,11 +9,6 @@ from ase.calculators.cp2k import CP2K
 from ase.optimize.bfgs import BFGS
 from ase.constraints import FixAtoms
 import pandas as pd
-import matplotlib
-import matplotlib.pyplot as plt
-import seaborn
-
-matplotlib.rcParams['backend'] = 'TkAgg'
 
 def constraint(surf, indices=None):
 	c = FixAtoms(indices=indices)
@@ -87,7 +82,7 @@ def get_dos_center(pdos_file=None):
 	return s_center, p_center, d_center
 
 # ---- start
-os.system("rm cp2k*")
+os.system("rm cp2k* >& /dev/null")
 pdos_dir = "pdos"
 if not os.path.isdir(pdos_dir):
 	os.makedirs("pdos")
@@ -96,18 +91,22 @@ else:
 
 json_file = "data.json"
 
-ncore = 1
+num_sample = 20
+steps = 5
+max_scf = 10
+ncore = 36
+
 home = os.environ["HOME"]
 
-#cp2k_root  = home + "/" + "cp2k/cp2k-6.1"
-#cp2k_shell = cp2k_root + "/exe/Linux-x86-64-intel/cp2k_shell.popt"
-#os.environ["CP2K_DATA_DIR"] = cp2k_root + "/data"
-#CP2K.command = "mpiexec.hydra -n {0:d} {1:s}".format(ncore, cp2k_shell)
-
-cp2k_root  = home + "/" + "cp2k/cp2k-7.1.0"
-cp2k_shell = cp2k_root + "/exe/Darwin-IntelMacintosh-gfortran/cp2k_shell.sopt"
+cp2k_root  = home + "/" + "cp2k/cp2k-6.1"
+cp2k_shell = cp2k_root + "/exe/Linux-x86-64-intel/cp2k_shell.popt"
 os.environ["CP2K_DATA_DIR"] = cp2k_root + "/data"
-CP2K.command = cp2k_shell
+CP2K.command = "mpiexec.hydra -n {0:d} {1:s}".format(ncore, cp2k_shell)
+
+#cp2k_root  = home + "/" + "cp2k/cp2k-7.1.0"
+#cp2k_shell = cp2k_root + "/exe/Darwin-IntelMacintosh-gfortran/cp2k_shell.sopt"
+#os.environ["CP2K_DATA_DIR"] = cp2k_root + "/data"
+#CP2K.command = cp2k_shell
 
 df = pd.DataFrame()
 base_surf = make_base_surface()
@@ -134,9 +133,6 @@ inp = ''' &FORCE_EVAL
 			&END DFT
 		  &END FORCE_EVAL				 
 '''
-num_sample = 2
-steps = 2
-max_scf = 5
 
 # adsorbate
 ads = Atoms("CO", [[0, 0, 0], [0, 0, 1.3]])

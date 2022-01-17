@@ -9,6 +9,7 @@ from ase.calculators.cp2k import CP2K
 from ase.optimize.bfgs import BFGS
 from ase.constraints import FixAtoms
 import pandas as pd
+import argparse
 
 def constraint(surf, indices=None):
 	c = FixAtoms(indices=indices)
@@ -82,6 +83,14 @@ def get_dos_center(pdos_file=None):
 	return s_center, p_center, d_center
 
 # ---- start
+parser = argparse.ArgumentParser()
+parser.add_argument("--jsonfile", help="json file to store data", default="data.json")
+parser.add_argument("--nsample",  help="number of samples", default=1, type=int)
+args = parser.parse_args()
+
+jsonfile = args.jsonfile
+nsample = args.nsample
+
 os.system("rm cp2k* >& /dev/null")
 pdos_dir = "pdos"
 if not os.path.isdir(pdos_dir):
@@ -89,9 +98,8 @@ if not os.path.isdir(pdos_dir):
 else:
 	os.system("rm {}/*".format(pdos_dir))
 
-json_file = "data.json"
+jsonfile = "data.json"
 
-num_sample = 20
 steps = 5
 max_scf = 10
 ncore = 36
@@ -152,8 +160,8 @@ opt = BFGS(ads, maxstep=0.1, trajectory="cp2k.traj")
 opt.run(steps=steps)
 energy_ads = ads.get_potential_energy()
 
-for isample in range(num_sample):
-	print(" ---- Now {0:d} / {1:d} th sample ---".format(isample, num_sample))
+for isample in range(nsample):
+	print(" ---- Now {0:d} / {1:d} th sample ---".format(isample, nsample))
 	surf = shuffle(base_surf)
 	surf_ads = adsorbate_molecule(surf, ads)
 	surf_formula = surf_ads[1].get_chemical_formula()
@@ -199,8 +207,9 @@ for isample in range(num_sample):
 
 df.columns = ["surf_formula", "surf_symbols", "s_center", "p_center", "d_center", "ads_energy"]
 
-if os.path.exists(json_file):
-	df_ = pd.read_json(json_file, orient="records", lines=True)
+if os.path.exists(jsonfile):
+	df_ = pd.read_json(jsonfile, orient="records", lines=True)
 	df = df_.append(df)
 
-df.to_json(json_file, orient="records", lines=True)
+df.to_json(jsonfile, orient="records", lines=True)
+

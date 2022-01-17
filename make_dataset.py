@@ -17,9 +17,9 @@ def constraint(surf, indices=None):
 
 def make_base_surface(element="Au"):
 	vacuum = 8.0
-	surf = fcc111(element, size=[2, 2, 2], vacuum=vacuum)
+	surf = fcc111(element, size=[2, 2, 3], vacuum=vacuum)
 
-	indices = list(range(0, 4))
+	indices = list(range(0, 8))
 	constraint(surf, indices=indices)
 
 	surf.translate([0, 0, -vacuum+0.1])
@@ -28,11 +28,12 @@ def make_base_surface(element="Au"):
 
 def shuffle(surf, elements=None):
 	if elements is None:
-		elements = ["Al", "Ni", "Cu", "Pd", "Ag", "Pt"]
+		#elements = ["Al", "Ni", "Cu", "Pd", "Ag", "Pt"]
+		elements = ["Cu", "Pd", "Ag", "Pt"]
 
 	surf_copy = surf.copy()
 	num_atoms = len(surf_copy.get_atomic_numbers())
-	max_replace = int(1.0*num_atoms)
+	max_replace = int(0.5*num_atoms)
 	num_replace = random.choice(range(1, max_replace))
 
 	for iatom in range(num_replace):
@@ -44,7 +45,7 @@ def shuffle(surf, elements=None):
 	surf_copy.set_atomic_numbers(atomic_numbers)
 	surf_copy.pbc = True
 
-	indices = list(range(0, 4))
+	indices = list(range(0, 8))
 	constraint(surf_copy, indices=indices)
 
 	return surf_copy
@@ -54,7 +55,7 @@ def adsorbate_molecule(surf, ads):
 
 	add_adsorbate(surf_with_ads, ads, height=1.5)
 	surf_with_ads.pbc = True
-	indices = list(range(0, 4))
+	indices = list(range(0, 8))
 	constraint(surf_with_ads, indices=indices)
 
 	return [surf_with_ads, surf]
@@ -102,19 +103,19 @@ jsonfile = "data.json"
 
 steps = 5
 max_scf = 10
-ncore = 36
+ncore = 1
 
 home = os.environ["HOME"]
 
-cp2k_root  = home + "/" + "cp2k/cp2k-6.1"
-cp2k_shell = cp2k_root + "/exe/Linux-x86-64-intel/cp2k_shell.popt"
-os.environ["CP2K_DATA_DIR"] = cp2k_root + "/data"
-CP2K.command = "mpiexec.hydra -n {0:d} {1:s}".format(ncore, cp2k_shell)
-
-#cp2k_root  = home + "/" + "cp2k/cp2k-7.1.0"
-#cp2k_shell = cp2k_root + "/exe/Darwin-IntelMacintosh-gfortran/cp2k_shell.sopt"
+#cp2k_root  = home + "/" + "cp2k/cp2k-6.1"
+#cp2k_shell = cp2k_root + "/exe/Linux-x86-64-intel/cp2k_shell.popt"
 #os.environ["CP2K_DATA_DIR"] = cp2k_root + "/data"
-#CP2K.command = cp2k_shell
+#CP2K.command = "mpiexec.hydra -n {0:d} {1:s}".format(ncore, cp2k_shell)
+
+cp2k_root  = home + "/" + "cp2k/cp2k-7.1.0"
+cp2k_shell = cp2k_root + "/exe/Darwin-IntelMacintosh-gfortran/cp2k_shell.sopt"
+os.environ["CP2K_DATA_DIR"] = cp2k_root + "/data"
+CP2K.command = cp2k_shell
 
 df = pd.DataFrame()
 base_surf = make_base_surface()
@@ -163,6 +164,7 @@ energy_ads = ads.get_potential_energy()
 for isample in range(nsample):
 	print(" ---- Now {0:d} / {1:d} th sample ---".format(isample, nsample))
 	surf = shuffle(base_surf)
+	view(surf); quit()
 	surf_ads = adsorbate_molecule(surf, ads)
 	surf_formula = surf_ads[1].get_chemical_formula()
 	surf_symbols = surf_ads[1].get_chemical_symbols()

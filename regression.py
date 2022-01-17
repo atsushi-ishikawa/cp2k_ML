@@ -7,7 +7,7 @@ import argparse
 
 matplotlib.rcParams['backend'] = 'TkAgg'
 
-np.random.seed(0)
+np.random.seed(10)
 
 def drop_duplicated_sample(df, key=None):
 	duplicated = df[key].apply(tuple).duplicated()

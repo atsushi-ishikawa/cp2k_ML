@@ -63,5 +63,11 @@ args = parser.parse_args()
 jsonfile = args.jsonfile
 
 df = pd.read_json(jsonfile, orient="records", lines=True)
-regression(df)
 
+# pairplot
+plot = seaborn.pairplot(df)
+#plt.show()
+plt.savefig("pairplot.png")
+plt.close()
+
+regression(df)

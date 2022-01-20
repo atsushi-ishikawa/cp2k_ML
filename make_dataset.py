@@ -75,31 +75,58 @@ def get_element_of_adsorption_site(surf, adsorption_pos=0):
 	symbol = surf.get_chemical_symbols()[adsorption_pos]
 	return number, symbol
 
-def get_fermi_energy(pdos_file=None):
+def get_dos_center(pdos_file=None, save_file=False):
+	lChannels = ('s', 'p', 'd')
+	centers = []
+
+	# read in entire file
 	f = open(pdos_file, "r")
-	line = f.readline()
-	e_fermi = line.split("=")[2].strip().split(" ")[0]
-	e_fermi = float(e_fermi)
-	return e_fermi
+	data = f.readlines()
+	nlines = len(data)
 
-def get_dos_center(pdos_file=None):
-	dos = np.loadtxt(pdos_file, skiprows=2)
-	energy = dos[:, 1]
-	s_dos  = dos[:, 3]
-	p_dos  = dos[:, 4] + dos[:, 5] + dos[:, 6]
-	d_dos  = dos[:, 7] + dos[:, 8] + dos[:, 9] + dos[:, 10] + dos[:, 11]
-	s_center = np.trapz(energy*s_dos, energy) / np.trapz(s_dos, energy)
-	p_center = np.trapz(energy*p_dos, energy) / np.trapz(p_dos, energy)
-	d_center = np.trapz(energy*d_dos, energy) / np.trapz(d_dos, energy)
-	return s_center, p_center, d_center
+	# find Fermi level in eV
+	e_fermi = np.float_(data[0].split(" ")[-2])*27.211
 
-def clean_cp2k(pdos_dir=None):
-	os.system("rm cp2k* >& /dev/null")
-	if pdos_dir is not None:
-		if not os.path.isdir(pdos_dir):
-			os.makedirs(pdos_dir)
-		else:
-			os.system("rm {}/*".format(pdos_dir))
+	# find number of angular momentum channels
+	nl_channels = len(list(filter(None, data[1].strip("").strip("\n").split(" ")))) - 5
+
+	# read energy vs. DOS data for all components into a single matrix of eV vs. DOS data
+	dosData = []
+	for i in range(2, nlines):
+		dosData.append(list(filter(None, data[i].strip(" ").strip("\n").split(" ")))[1:])
+
+	dosData = np.float_(np.array(dosData))
+
+	# convert energy axis from Hartree to eV
+	dosData[:,0] = 27.211*dosData[:,0]
+
+	E1 = min(dosData[:,0]) - 2.0
+	E2 = max(dosData[:,0]) + 2.0
+	dE = 1.0e-1
+	sigma = 5.0e-1
+
+	for i in range(0, nl_channels):
+		dos_energy = np.linspace(E1, E2, int((E2-E1)/dE))
+		dos_hist = np.zeros([len(dos_energy), 1])
+		j = 0
+		for E in dos_energy:
+			for (eps, weight) in zip(dosData[:, 0], dosData[:, 2+i]):
+				dos_hist[j] += 1.0/(np.sqrt(2*np.pi)*sigma)*np.exp(-(E-eps)**2 / (2*sigma**2))*weight
+			j += 1
+	
+		dos_energy = dos_energy[np.newaxis].T - e_fermi
+		dos = np.hstack((dos_energy, dos_hist))
+
+		# save to aptly named file
+		if save_file:
+			outfile = 'pydos_' + '_' + lChannels[i] + '.dat'
+			np.savetxt(outfile, dos)
+
+		centers.append(np.trapz(dos_energy*dos_hist, dos_energy, axis=0) / np.trapz(dos_hist, dos_energy, axis=0))
+
+	centers = np.float_(centers).reshape(-1)
+
+	return centers
 
 # ---- start
 parser = argparse.ArgumentParser()
@@ -222,17 +249,13 @@ for isample in range(nsample):
 
 		if imol == 1:  # surf
 			pdos_file = label + "-ALPHA_list1.pdos"
-			e_fermi = get_fermi_energy(pdos_file=pdos_file)
-			s_center, p_center, d_center = get_dos_center(pdos_file=pdos_file)
-			s_center -= e_fermi
-			p_center -= e_fermi
-			d_center -= e_fermi
+			centers = get_dos_center(pdos_file=pdos_file, save_file=False)
 
 		#os.system("rm {}*".format(label))
 
 	e_ads = energy_list[0] - (energy_list[1] + energy_ads)
 
-	df_ = pd.DataFrame([[surf_formula, surf_symbols, s_center, p_center, d_center, e_ads]])
+	df_ = pd.DataFrame([[surf_formula, surf_symbols, centers[0], centers[1], centers[2], e_ads]])
 	df  = df.append(df_, ignore_index=True)
 
 df.columns = ["surf_formula", "surf_symbols", "s_center", "p_center", "d_center", "ads_energy"]

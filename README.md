@@ -1,5 +1,3 @@
-# cp2k_ML: cp2k script for machine-learning
-
 ## Introduction
 * the script for carrying out the machine-learning analysis with the computational results obtained with CP2K
 * based on ASE (https://wiki.fysik.dtu.dk/ase/index.html)

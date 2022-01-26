@@ -25,7 +25,7 @@ def regression(df, do_plot=True):
 	df = drop_duplicated_sample(df, key="surf_symbols")
 
 	x = df.drop(["surf_formula", "surf_symbols", "ads_energy"], axis=1)
-	y = -df["ads_energy"]  # more positive = stronger adsorption
+	y = df["ads_energy"]
 
 	cv = 5
 	test_size = 1.0 / cv

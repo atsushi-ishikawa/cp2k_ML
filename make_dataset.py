@@ -62,22 +62,22 @@ def shuffle(surf, elements=None):
 def adsorbate_molecule(surf, ads):
 	surf_with_ads = surf.copy()
 
-	add_adsorbate(surf_with_ads, ads, height=1.5)
+	add_adsorbate(surf_with_ads, ads, height=1.6)
 	surf_with_ads.pbc = True
 
 	indices = list(range(0, onelayer*nlayer // 2))
 	constraint(surf_with_ads, indices=indices)
 
-	return [surf_with_ads, surf]
+	return surf_with_ads
 
 def get_element_of_adsorption_site(surf, adsorption_pos=0):
 	number = surf.get_atomic_numbers()[adsorption_pos]
 	symbol = surf.get_chemical_symbols()[adsorption_pos]
 	return number, symbol
 
-def get_dos_center(pdos_file=None, save_file=False):
-	lChannels = ('s', 'p', 'd')
-	centers = []
+def get_dos_center(pdos_file=None, save_to=False):
+	l_channels = ("s", "p", "d", "f")
+	centers = np.zeros(len(l_channels))
 
 	# read in entire file
 	f = open(pdos_file, "r")
@@ -91,26 +91,26 @@ def get_dos_center(pdos_file=None, save_file=False):
 	nl_channels = len(list(filter(None, data[1].strip("").strip("\n").split(" ")))) - 5
 
 	# read energy vs. DOS data for all components into a single matrix of eV vs. DOS data
-	dosData = []
+	dos_data = []
 	for i in range(2, nlines):
-		dosData.append(list(filter(None, data[i].strip(" ").strip("\n").split(" ")))[1:])
+		dos_data.append(list(filter(None, data[i].strip(" ").strip("\n").split(" ")))[1:])
 
-	dosData = np.float_(np.array(dosData))
+	dos_data = np.float_(np.array(dos_data))
 
 	# convert energy axis from Hartree to eV
-	dosData[:,0] = 27.211*dosData[:,0]
+	dos_data[:,0] = 27.211*dos_data[:,0]
 
-	E1 = min(dosData[:,0]) - 2.0
-	E2 = max(dosData[:,0]) + 2.0
+	E1 = e_fermi - 20.0  # inner shells are not necessary
+	E2 = e_fermi + 5.0   # take some mergin for unoccupied region
 	dE = 1.0e-1
-	sigma = 5.0e-1
+	sigma = 3.0e-1
 
 	for i in range(0, nl_channels):
 		dos_energy = np.linspace(E1, E2, int((E2-E1)/dE))
 		dos_hist = np.zeros([len(dos_energy), 1])
 		j = 0
 		for E in dos_energy:
-			for (eps, weight) in zip(dosData[:, 0], dosData[:, 2+i]):
+			for (eps, weight) in zip(dos_data[:, 0], dos_data[:, 2+i]):
 				dos_hist[j] += 1.0/(np.sqrt(2*np.pi)*sigma)*np.exp(-(E-eps)**2 / (2*sigma**2))*weight
 			j += 1
 	
@@ -118,13 +118,14 @@ def get_dos_center(pdos_file=None, save_file=False):
 		dos = np.hstack((dos_energy, dos_hist))
 
 		# save to aptly named file
-		if save_file:
-			outfile = 'pydos_' + '_' + lChannels[i] + '.dat'
+		if save_to is not None:
+			outfile = save_to + '_' + l_channels[i] + "_dos" + '.dat'
+			print("now saveing dos file to", outfile)
 			np.savetxt(outfile, dos)
 
-		centers.append(np.trapz(dos_energy*dos_hist, dos_energy, axis=0) / np.trapz(dos_hist, dos_energy, axis=0))
+		centers[i] = np.trapz(dos_energy*dos_hist, dos_energy, axis=0) / np.trapz(dos_hist, dos_energy, axis=0)
 
-	centers = np.float_(centers).reshape(-1)
+	#centers = np.float_(centers).reshape(-1)
 
 	return centers
 
@@ -145,13 +146,17 @@ if not os.path.isdir(tmpdir):
 
 jsonfile = "data.json"
 
-steps = 50
+# optimization
+steps = 100
 max_scf = 20
 fmax = 0.1
 maxstep = 0.5
 
 ncore = 36
 home = os.environ["HOME"]
+
+# cp2k setup
+basis_set = "DZVP-MOLOPT-SR-GTH"
 
 cp2k_root  = home + "/" + "cp2k/cp2k-6.1"
 cp2k_shell = cp2k_root + "/exe/Linux-x86-64-intel/cp2k_shell.popt"
@@ -167,6 +172,22 @@ df = pd.DataFrame()
 base_surf = make_base_surface()
 inp = ''' &FORCE_EVAL
             &DFT
+              &XC
+                &XC_FUNCTIONAL
+				  &GGA_X_RPBE
+				  &END
+                &END XC_FUNCTIONAL
+              ! &VDW_POTENTIAL
+              !   POTENTIAL_TYPE PAIR_POTENTIAL
+              !   &PAIR_POTENTIAL
+              !     TYPE DFTD3 # DFTD3(BJ) for Becke-Jonshon dampling
+              !     CALCULATE_C9_TERM .TRUE. # optional
+              !     REFERENCE_FUNCTIONAL PBE
+              !     PARAMETER_FILE_NAME /home/usr6/m70286a/cp2k/cp2k-6.1/data/dftd3.dat
+              !     R_CUTOFF 15
+              !   &END PAIR_POTENTIAL
+              ! &END VDW_POTENTIAL
+              &END XC
               &SCF
 				SCF_GUESS ATOMIC
                 EPS_SCF 1.0E-5
@@ -181,14 +202,14 @@ inp = ''' &FORCE_EVAL
               &PRINT
                 &PDOS
                   &LDOS
-                    COMPONENTS .TRUE.
-                    LIST 1..Natoms
+                    # LIST 1..Natoms
+                    LIST surf_start..surf_end
                   &END LDOS
                   FILENAME pdosdir
                 &END PDOS
               &END PRINT
             &END DFT
-          &END FORCE_EVAL				 
+          &END FORCE_EVAL
 '''
 # adsorbate
 ads = Atoms("CO", [[0, 0, 0], [0, 0, 1.2]])
@@ -199,14 +220,15 @@ ads.pbc = True
 print("calculating energy for adsorbate:", ads.get_chemical_formula())
 natoms = len(ads)
 label  = tmpdir + "/ads"
-
-inp_replaced = inp.replace("Natoms", str(natoms))
+#inp_replaced = inp.replace("Natoms", str(natoms))
+inp_replaced = inp.replace("surf_start", str(1))
+inp_replaced = inp_replaced.replace("surf_end", str(natoms))
 inp_replaced = inp_replaced.replace("pdosdir", label)
 
 calc = CP2K(max_scf=max_scf, uks=False,
-			basis_set="SZV-MOLOPT-SR-GTH", basis_set_file="BASIS_MOLOPT",
+			basis_set=basis_set, basis_set_file="BASIS_MOLOPT",
 			pseudo_potential="GTH-PBE", potential_file="GTH_POTENTIALS", label=label,
-			poisson_solver=None, xc="PBE", print_level="MEDIUM", inp=inp_replaced)
+			poisson_solver=None, xc=None, print_level="MEDIUM", inp=inp_replaced)
 ads.set_calculator(calc)
 opt = FIRE(ads, maxstep=maxstep, trajectory=label+".traj")
 opt.run(steps=steps, fmax=fmax)
@@ -214,46 +236,58 @@ energy_ads = ads.get_potential_energy()
 os.system("rm {}*".format(label))
 
 for isample in range(nsample):
-	print(" ---- Now {0:d} / {1:d} th sample ---".format(isample+1, nsample))
-	surf = shuffle(base_surf)
-	surf_ads = adsorbate_molecule(surf, ads)
-	surf_formula = surf_ads[1].get_chemical_formula()
-	surf_symbols = surf_ads[1].get_chemical_symbols()
-
 	energy_list = np.zeros(2)
-	for imol, mol in enumerate(surf_ads):
-		print("now calculating:", mol.get_chemical_formula())
-		label = tmpdir + "/" + mol.get_chemical_formula()
+	print(" ---- Now {0:d} / {1:d} th sample ---".format(isample+1, nsample))
+	#
+	# surface
+	#
+	surf = shuffle(base_surf)
+	surf_formula = surf.get_chemical_formula()
+	surf_symbols = surf.get_chemical_symbols()
+	print("calculating surface:", surf_formula)
+	label = tmpdir + "/" + surf_formula
 
-		# pre-opt with EMT
-		calc = EMT()
-		mol.set_calculator(calc)
-		opt = BFGS(mol)
-		opt.run(steps=steps, fmax=fmax)
-		pos = mol.get_positions()
+	# optimization
+	natoms = len(surf)
+	#inp_replaced = inp.replace("Natoms", str(natoms))
+	inp_replaced = inp.replace("surf_start", str(onelayer*(nlayer-1)+1))
+	inp_replaced = inp_replaced.replace("surf_end", str(natoms))
+	inp_replaced = inp_replaced.replace("pdosdir", label)
+	calc = CP2K(max_scf=max_scf, uks=True, basis_set=basis_set, basis_set_file="BASIS_MOLOPT",
+				pseudo_potential="GTH-PBE", potential_file="GTH_POTENTIALS", label=label,
+				poisson_solver=None, xc=None, print_level="MEDIUM", inp=inp_replaced)
+	surf.set_calculator(calc)
+	opt = FIRE(surf, maxstep=maxstep, trajectory=label+".traj")
+	opt.run(steps=steps, fmax=fmax)
 
-		# cp2k calc
-		mol.set_positions(pos)
-		natoms = len(mol)
-		inp_replaced = inp.replace("Natoms", str(natoms))
-		inp_replaced = inp_replaced.replace("pdosdir", label)
-		calc = CP2K(max_scf=max_scf, uks=True,
-					basis_set="SZV-MOLOPT-SR-GTH", basis_set_file="BASIS_MOLOPT",
-					pseudo_potential="GTH-PBE", potential_file="GTH_POTENTIALS", label=label,
-					poisson_solver=None, xc="PBE", print_level="MEDIUM", inp=inp_replaced)
-		mol.set_calculator(calc)
-		opt = FIRE(mol, maxstep=maxstep, trajectory=label+".traj")
-		opt.run(steps=steps, fmax=fmax)
-		energy = mol.get_potential_energy()
-		energy_list[imol] = energy
+	# get dos centers for alpha
+	pdos_file = label + "-ALPHA_list1.pdos"
+	centers_alpha = get_dos_center(pdos_file=pdos_file, save_to=label+"_alpha")
 
-		if imol == 1:  # surf
-			pdos_file = label + "-ALPHA_list1.pdos"
-			centers = get_dos_center(pdos_file=pdos_file, save_file=False)
+	# get dos centers for beta
+	pdos_file = label + "-BETA_list1.pdos"
+	centers_beta = get_dos_center(pdos_file=pdos_file, save_to=label+"_beta")
 
-		#os.system("rm {}*".format(label))
+	centers = (centers_alpha + centers_beta) / 2.0
 
-	e_ads = energy_list[0] - (energy_list[1] + energy_ads)
+	energy_list[0] = surf.get_potential_energy()
+	#
+	# surface + adsorbate
+	#
+	print("calculating surface + adsorbate:", surf_formula)
+	surf_ads = adsorbate_molecule(surf, ads)
+	label = tmpdir + "/" + surf_ads.get_chemical_formula()
+	calc.set_label(label=label)
+
+	# optimization
+	surf_ads.set_calculator(calc)
+	opt = FIRE(surf_ads, maxstep=maxstep, trajectory=label+".traj")
+	opt.run(steps=steps, fmax=fmax)
+
+	energy_list[1] = surf_ads.get_potential_energy()
+
+	e_ads = energy_list[1] - (energy_list[0] + energy_ads)
+	print("{0:s} adsorption energy: {1:5.3f} eV".format(str(ads.get_chemical_formula()), e_ads))
 
 	df_ = pd.DataFrame([[surf_formula, surf_symbols, centers[0], centers[1], centers[2], e_ads]])
 	df  = df.append(df_, ignore_index=True)

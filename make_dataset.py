@@ -174,8 +174,9 @@ inp = ''' &FORCE_EVAL
             &DFT
               &XC
                 &XC_FUNCTIONAL
-				  &GGA_X_RPBE
-				  &END
+				  &PBE
+				    PARAMETRIZATION REVPBE
+				  &END PBE
                 &END XC_FUNCTIONAL
               ! &VDW_POTENTIAL
               !   POTENTIAL_TYPE PAIR_POTENTIAL
